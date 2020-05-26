@@ -104,7 +104,7 @@ class PGDatabase implements IPluginStorage<PGConfig> {
       this.data = this.data.then(data => ({ ...data, list: data.list.concat(name) }));
 
       this.logger.debug({ name }, '[pg-storage]: the private package @{name} has been added');
-      cb(this._sync());
+      cb(await this._sync());
     } else {
       cb(null);
     }
@@ -129,14 +129,14 @@ class PGDatabase implements IPluginStorage<PGConfig> {
   }
 
   public remove(name: string, cb: Callback): void {
-    this.get((err, list) => {
+    this.get(async (err, list) => {
       if (err) {
         cb(getInternalError('error remove private package'));
         this.logger.error({ err }, '[pg-storage/remove]: remove the private package has failed @{err}');
       }
 
       this.data = this.data.then(data => ({ ...data, list: list.filter((pkgName: string) => pkgName !== name) }));
-      cb(this._sync());
+      cb(await this._sync());
     });
   }
 
