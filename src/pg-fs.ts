@@ -121,38 +121,39 @@ export default class PGPackageManager implements IPGPackageManager {
     });
 
     const pathName: string = this._getStorage(name);
-    try {
-      this._readStorageFile(pathName);
-      uploadStream.emit('error', getCode(409, ERROR_FILE_EXIST.message));
-      return uploadStream;
-    } catch (err) {
-      if (err != ERROR_NO_SUCH_FILE) {
-        uploadStream.emit('error', err);
-        return uploadStream;
-      }
-    }
-    const chunks: Uint8Array[] = [];
-    uploadStream.on('data', data => chunks.push(data));
 
-    uploadStream.done = (): void => {
-      const query = async (): Promise<void> => {
-        const buffer = Buffer.concat(chunks);
-        const err = await this._writeFile(pathName, buffer);
-        if (err) {
+    (async (): Promise<void> => {
+      try {
+        await this._readStorageFile(pathName);
+        uploadStream.emit('error', getCode(409, ERROR_FILE_EXIST.message));
+      } catch (err) {
+        if (err != ERROR_NO_SUCH_FILE) {
           uploadStream.emit('error', err);
+        }
+      }
+      const chunks: Uint8Array[] = [];
+      uploadStream.on('data', data => chunks.push(data));
+
+      uploadStream.done = (): void => {
+        const query = async (): Promise<void> => {
+          const buffer = Buffer.concat(chunks);
+          const err = await this._writeFile(pathName, buffer);
+          if (err) {
+            uploadStream.emit('error', err);
+          } else {
+            uploadStream.emit('success');
+          }
+        };
+        if (ended) {
+          query();
         } else {
-          uploadStream.emit('success');
+          uploadStream.on('end', query);
         }
       };
-      if (ended) {
-        query();
-      } else {
-        uploadStream.on('end', query);
-      }
-    };
 
-    uploadStream.abort = noop;
-    uploadStream.emit('open');
+      uploadStream.abort = noop;
+      uploadStream.emit('open');
+    })();
 
     return uploadStream;
   }
