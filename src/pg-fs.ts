@@ -42,7 +42,7 @@ export default class PGPackageManager implements IPGPackageManager {
     this.logger.debug({ name }, '[pg-storage/updatePackage]: update package init ${name}');
     try {
       const buffer = await this._readStorageFile(this._getStorage(PKG_FILE_NAME));
-      const json = JSON.stringify(buffer.toString('utf8'));
+      const json = JSON.parse(buffer.toString('utf8'));
       updateHandler(json, err => {
         if (err) {
           this.logger.error({ err }, '[pg-storage/updatePackage/updateHandler]: onEnd @{err}');
