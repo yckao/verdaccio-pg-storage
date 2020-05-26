@@ -228,9 +228,9 @@ class PGDatabase implements IPluginStorage<PGConfig> {
     const emptyDatabase = { list, secret: '' };
 
     try {
-      const [{ data: data }] = await this.sql<{ data: LocalStorage }>`SELECT value FROM ${this.sql(TABLE_NAME)}`;
+      const [{ value: value }] = await this.sql<{ value: LocalStorage }>`SELECT value FROM ${this.sql(TABLE_NAME)}`;
 
-      return data;
+      return value;
     } catch (err) {
       // Only recreate if table not found to prevent data loss undefined_table
       if (err.code !== '42P01') {
