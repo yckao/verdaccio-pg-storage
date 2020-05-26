@@ -49,7 +49,7 @@ export default class PGPackageManager implements IPGPackageManager {
         } else {
           const transformed = transformPackage(json);
           this.logger.debug({ transformed }, '[pg-storage/updatePackage/updateHandler]: onWrite @{transformedPackage}');
-          onWrite(name, transformPackage, onEnd);
+          onWrite(name, transformed, onEnd);
         }
       });
     } catch (err) {
