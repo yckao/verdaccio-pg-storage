@@ -182,7 +182,7 @@ export default class PGPackageManager implements IPGPackageManager {
     await this.table;
     this.logger.trace({ name }, '[pg-storage/_createFile] create a new file: @{name}');
     try {
-      this._readStorageFile(name);
+      await this._readStorageFile(name);
       this.logger.trace({ name }, '[pg-storage/_createFile] file cannot be created, it already exists: @{name}');
 
       return callback(getCode(409, 'EEXIST'));
