@@ -36,7 +36,7 @@
     "verdaccio,plugin,storage,postgres,verdaccio-"
   ],
   "license": "MIT",
-  "repository": "yckao/verdaccio-pg-storage",
+  "repository": "https://github.com/yckao/verdaccio-pg-storage",
   "author": "yckao <yckaokarl@gmail.com>",
   "scripts": {
     "release": "standard-version -a -s",
