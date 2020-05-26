@@ -228,7 +228,7 @@ class PGDatabase implements IPluginStorage<PGConfig> {
     const emptyDatabase = { list, secret: '' };
 
     try {
-      const [{ data: data }] = await this.sql<{ data: LocalStorage }>`SELECT data FROM ${this.sql(TABLE_NAME)}`;
+      const [{ data: data }] = await this.sql<{ data: LocalStorage }>`SELECT value FROM ${this.sql(TABLE_NAME)}`;
 
       return data;
     } catch (err) {
@@ -258,7 +258,7 @@ class PGDatabase implements IPluginStorage<PGConfig> {
     try {
       await this.sql`CREATE TABLE IF NOT EXISTS ${this.sql(TABLE_NAME)} (
         key bool PRIMARY KEY DEFAULT TRUE,
-        data jsonb,
+        value jsonb,
         created_at timestamp not null default current_timestamp,
         updated_at timestamp not null default current_timestamp
         CONSTRAINT local_packages_unique CHECK (key)
