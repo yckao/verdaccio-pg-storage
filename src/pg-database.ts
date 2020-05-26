@@ -104,9 +104,9 @@ class PGDatabase implements IPluginStorage<PGConfig> {
       this.data = this.data.then(data => ({ ...data, list: data.list.concat(name) }));
 
       this.logger.debug({ name }, '[pg-storage]: the private package @{name} has been added');
-      cb(this._sync);
+      cb(this._sync());
     } else {
-      cb(this._sync);
+      cb(null);
     }
   }
 
