@@ -2,14 +2,16 @@ import path from 'path';
 import { Readable } from 'stream';
 
 import { ILocalPackageManager, Logger, Callback, Package, IUploadTarball } from '@verdaccio/types';
-import { getCode } from '@verdaccio/commons-api/lib';
+import { getCode, VerdaccioError } from '@verdaccio/commons-api/lib';
 import postgres from 'postgres';
 import { UploadTarball, ReadTarball } from '@verdaccio/streams';
 
 export const TABLE_NAME = 'files';
 export const PKG_FILE_NAME = 'package.json';
-export const ERROR_NO_SUCH_FILE = new Error('no such file');
-export const ERROR_FILE_EXIST = new Error('file exist');
+export const ERROR_NO_SUCH_FILE: VerdaccioError = new Error('no such file');
+ERROR_NO_SUCH_FILE.code = 'ENOENT';
+export const ERROR_FILE_EXIST: VerdaccioError = new Error('file exist');
+ERROR_FILE_EXIST.code = 'EEXISTS';
 export type IPGPackageManager = ILocalPackageManager & { prefix: string };
 const noop = (): void => {
   // Make linter happy
@@ -181,7 +183,7 @@ export default class PGPackageManager implements IPGPackageManager {
     this.logger.trace({ name }, '[pg-storage/_createFile] create a new file: @{name}');
     try {
       this._readStorageFile(name);
-      this.logger.trace({ name }, '[local-storage/_createFile] file cannot be created, it already exists: @{name}');
+      this.logger.trace({ name }, '[pg-storage/_createFile] file cannot be created, it already exists: @{name}');
 
       return callback(getCode(409, 'EEXIST'));
     } catch (err) {
