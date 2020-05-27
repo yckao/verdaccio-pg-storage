@@ -13,6 +13,7 @@
   "dependencies": {
     "@verdaccio/commons-api": "^8.5.0",
     "@verdaccio/streams": "^8.5.2",
+    "ley": "^0.5.0",
     "postgres": "^1.0.2"
   },
   "devDependencies": {
@@ -31,7 +32,11 @@
     "typescript": "^3.7.2"
   },
   "keywords": [
-    "verdaccio,plugin,storage,postgres,verdaccio-"
+    "verdaccio",
+    "plugin",
+    "storage",
+    "postgres",
+    "verdaccio-pg-storage"
   ],
   "license": "MIT",
   "repository": "https://github.com/yckao/verdaccio-pg-storage",
