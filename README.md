@@ -11,3 +11,4 @@
 - [ ] Optimize File Uploading
 - [ ] Make Migration
 - [ ] Reorganize Log Messages
+- [ ] Build With CI
