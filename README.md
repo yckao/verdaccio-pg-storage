@@ -9,6 +9,6 @@
 - [ ] Add Tests
 - [ ] Add Docs
 - [ ] Optimize File Uploading
-- [ ] Make Migration
+- [x] Make Migration
 - [ ] Reorganize Log Messages
 - [ ] Build With CI
