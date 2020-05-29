@@ -1,4 +1,6 @@
+/* eslint-disable no-invalid-this */
 import Path from 'path';
+import { callbackify } from 'util';
 
 import _ from 'lodash';
 import {
@@ -13,7 +15,6 @@ import {
   StorageList,
 } from '@verdaccio/types';
 import postgres from 'postgres';
-import { getInternalError } from '@verdaccio/commons-api';
 
 import PGDriver, { TABLE_NAME as FILES_TABLE_NAME } from './pg-fs';
 import { Level, level } from './level-adapter';
@@ -94,21 +95,22 @@ class PGDatabase implements IPluginStorage<PGConfig> {
     return (await this.data).secret;
   }
 
-  public setSecret(secret: string): Promise<Error | null> {
-    this.data = this.data.then(data => ({ ...data, secret }));
-    return this._sync();
+  public async setSecret(secret: string): Promise<string> {
+    const data = await this.data;
+    this.data = Promise.resolve({ ...data, secret });
+    await this._sync();
+    return secret;
   }
 
-  public async add(name: string, cb: Callback): Promise<void> {
-    if (!(await this.data).list.includes(name)) {
-      this.data = this.data.then(data => ({ ...data, list: data.list.concat(name) }));
-
+  public add = callbackify(async (name: string) => {
+    const data = await this.data;
+    if (data.list.includes(name)) {
+      this.data = Promise.resolve({ ...data, list: data.list.concat(name) });
       this.logger.debug({ name }, '[pg-storage]: the private package @{name} has been added');
-      cb(await this._sync());
-    } else {
-      cb(null);
     }
-  }
+
+    await this._sync();
+  });
 
   public async search(onPackage: Callback, onEnd: Callback): Promise<void> {
     try {
@@ -128,26 +130,20 @@ class PGDatabase implements IPluginStorage<PGConfig> {
     }
   }
 
-  public remove(name: string, cb: Callback): void {
-    this.get(async (err, list) => {
-      if (err) {
-        cb(getInternalError('error remove private package'));
-        this.logger.error({ err }, '[pg-storage/remove]: remove the private package has failed @{err}');
-      }
+  public remove = callbackify(async (name: string) => {
+    const data = await this.data;
+    this.data = Promise.resolve({ ...data, list: data.list.filter((pkgName: string) => pkgName !== name) });
 
-      this.data = this.data.then(data => ({ ...data, list: list.filter((pkgName: string) => pkgName !== name) }));
-      cb(await this._sync());
-    });
-  }
+    await this._sync();
+  });
 
-  public async get(cb: Callback): Promise<void> {
+  public get = callbackify(async () => {
     const list = (await this.data).list;
     const totalItems = (await this.data).list.length;
 
-    cb(null, list);
-
     this.logger.trace({ totalItems }, '[pg-storage/get]: full list of packages (@{totalItems}) has been fetched');
-  }
+    return list;
+  });
 
   public getPackageStorage(packageName: string): IPackageStorage {
     const packageAccess = this.config.getMatchedPackagesSpec(packageName);
@@ -232,7 +228,6 @@ class PGDatabase implements IPluginStorage<PGConfig> {
 
       return value;
     } catch (err) {
-      // Only recreate if table not found to prevent data loss undefined_table
       if (err.code !== '42P01') {
         this.locked = true;
         this.logger.error(
@@ -245,12 +240,12 @@ class PGDatabase implements IPluginStorage<PGConfig> {
     }
   }
 
-  private async _sync(): Promise<Error | null> {
+  private async _sync(): Promise<void> {
     this.logger.debug('[pg-storage/_sync]: init sync database');
 
     if (this.locked) {
       this.logger.error('Database is locked, please check error message printed during startup to prevent data loss.');
-      return new Error(
+      throw new Error(
         'Verdaccio database is locked, please contact your administrator to checkout logs during verdaccio startup.'
       );
     }
@@ -267,24 +262,20 @@ class PGDatabase implements IPluginStorage<PGConfig> {
       this.logger.debug({ tableName: TABLE_NAME }, '[pg-storage/_sync]: table @{tableName} created succeed');
     } catch (err) {
       this.logger.debug({ err }, '[pg-storage/_sync/create-table-if-not-exists]: sync failed @{err}');
-
-      return null;
+      throw err;
     }
 
     try {
       await this.sql`
-        INSERT INTO ${this.sql(TABLE_NAME)} (key, value, updated_at) VALUES (TRUE, ${this.sql.json(
+      INSERT INTO ${this.sql(TABLE_NAME)} (key, value, updated_at) VALUES (TRUE, ${this.sql.json(
         await this.data
       )}, NOW())
-        ON CONFLICT (key) DO UPDATE SET value = ${this.sql.json(await this.data)}
+      ON CONFLICT (key) DO UPDATE SET value = ${this.sql.json(await this.data)}
       `;
       this.logger.debug('[pg-store/_sync/update_statement]: sync write succeed');
-
-      return null;
     } catch (err) {
       this.logger.debug({ err }, '[pg-store/_sync/update/statement]: sync failed$ @{err}');
-
-      return err;
+      throw err;
     }
   }
 
