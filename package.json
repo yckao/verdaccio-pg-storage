@@ -13,7 +13,6 @@
   "dependencies": {
     "@verdaccio/commons-api": "^8.5.0",
     "@verdaccio/streams": "^8.5.2",
-    "ley": "^0.5.0",
     "postgres": "^1.0.2"
   },
   "devDependencies": {
