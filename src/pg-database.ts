@@ -20,6 +20,7 @@ import PGDriver, { TABLE_NAME as FILES_TABLE_NAME } from './pg-fs';
 import { Level, level } from './level-adapter';
 import { PGConfig } from './config';
 import setConfigValue from './setConfigValue';
+import * as migration from './migration';
 
 const TABLE_NAME = 'verdaccio';
 const TOKEN_TABLE_NAME = 'tokens';
@@ -31,6 +32,7 @@ class PGDatabase implements IPluginStorage<PGConfig> {
   public tokenDb: Level<Token>;
 
   private sql: postgres.Sql<never>;
+  private ready: Promise<void>;
   private data: Promise<LocalStorage>;
 
   public constructor(config: PGConfig, options: PluginOptions<PGConfig>) {
@@ -82,6 +84,7 @@ class PGDatabase implements IPluginStorage<PGConfig> {
         connect_timeout: this.config.connect_timeout ? +this.config.connect_timeout : undefined,
       });
     }
+    this.ready = migration.up(this.sql);
 
     this.data = this._fetchLocalPackages();
     this.tokenDb = level(this.sql, TOKEN_TABLE_NAME);
@@ -163,7 +166,7 @@ class PGDatabase implements IPluginStorage<PGConfig> {
 
     this.logger.trace({ packageStoragePath }, '[pg-storage/getPackageStorage]: storage path: @{packageStoragePath}');
 
-    return new PGDriver(this.sql, packageStoragePath, this.logger);
+    return new PGDriver({ sql: this.sql, prefix: packageStoragePath, ready: this.ready, logger: this.logger });
   }
 
   public clean(): void {
@@ -224,8 +227,21 @@ class PGDatabase implements IPluginStorage<PGConfig> {
     const emptyDatabase = { list, secret: '' };
 
     try {
-      const [{ value: value }] = await this.sql<{ value: LocalStorage }>`SELECT value FROM ${this.sql(TABLE_NAME)}`;
+      await this.ready;
+    } catch (err) {
+      this.logger.error(
+        'Failed to get package database ready, please check the error printed below:\n',
+        `${err.message}`
+      );
+      throw err;
+    }
 
+    try {
+      const rows = await this.sql<{ value: LocalStorage }>`SELECT value FROM ${this.sql(TABLE_NAME)}`;
+      if (rows.length === 0) {
+        return emptyDatabase;
+      }
+      const [{ value: value }] = rows;
       return value;
     } catch (err) {
       if (err.code !== '42P01') {
@@ -251,15 +267,7 @@ class PGDatabase implements IPluginStorage<PGConfig> {
     }
 
     try {
-      await this.sql`CREATE TABLE IF NOT EXISTS ${this.sql(TABLE_NAME)} (
-        key bool PRIMARY KEY DEFAULT TRUE,
-        value jsonb,
-        created_at timestamp not null default current_timestamp,
-        updated_at timestamp not null default current_timestamp
-        CONSTRAINT local_packages_unique CHECK (key)
-      )`;
-
-      this.logger.debug({ tableName: TABLE_NAME }, '[pg-storage/_sync]: table @{tableName} created succeed');
+      await this.ready;
     } catch (err) {
       this.logger.debug({ err }, '[pg-storage/_sync/create-table-if-not-exists]: sync failed @{err}');
       throw err;

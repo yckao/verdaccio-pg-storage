@@ -22,14 +22,13 @@ export default class PGPackageManager implements IPGPackageManager {
   public logger: Logger;
 
   private sql: postgres.Sql<never>;
-  private table: Promise<string>;
+  private ready: Promise<void>;
 
-  public constructor(sql: postgres.Sql<never>, prefix: string, logger: Logger) {
-    this.sql = sql;
-    this.prefix = prefix;
-    this.logger = logger;
-
-    this.table = this._createTable(TABLE_NAME);
+  public constructor(opts: { sql: postgres.Sql<never>; ready: Promise<void>; prefix: string; logger: Logger }) {
+    this.sql = opts.sql;
+    this.ready = opts.ready;
+    this.prefix = opts.prefix;
+    this.logger = opts.logger;
   }
 
   public async updatePackage(
@@ -181,7 +180,7 @@ export default class PGPackageManager implements IPGPackageManager {
   }
 
   private async _createFile(name: string, contents: string, callback: Function): Promise<void> {
-    await this.table;
+    await this.ready;
     this.logger.trace({ name }, '[pg-storage/_createFile] create a new file: @{name}');
     try {
       await this._readStorageFile(name);
@@ -191,12 +190,13 @@ export default class PGPackageManager implements IPGPackageManager {
     } catch (err) {
       if (err == ERROR_NO_SUCH_FILE) {
         this._writeFile(name, Buffer.from(contents), callback);
+        this.logger.trace({ name }, '[pg-storage/_createFile] write file succeed: @{name}');
       }
     }
   }
 
   private async _readStorageFile(name: string): Promise<Buffer> {
-    await this.table;
+    await this.ready;
     this.logger.trace({ name }, '[pg-storage/_readStorageFile] read a file: @{name}');
 
     try {
@@ -212,7 +212,11 @@ export default class PGPackageManager implements IPGPackageManager {
 
       return data;
     } catch (err) {
-      this.logger.trace({ name }, '[pg-storage/_readStorageFile] error on read the file: @{name}');
+      if (err != ERROR_NO_SUCH_FILE) {
+        this.logger.trace({ name }, '[pg-storage/_readStorageFile] error on read the file: @{name}');
+      } else {
+        this.logger.trace({ name }, '[pg-storage/_readStorageFile] error no such file: @{name}');
+      }
 
       throw err;
     }
@@ -229,7 +233,7 @@ export default class PGPackageManager implements IPGPackageManager {
   }
 
   private async _writeFile(dest: string, data: Buffer, cb: Callback = noop): Promise<Error | null> {
-    await this.table;
+    await this.ready;
     try {
       await this.sql.begin(async sql => {
         await sql`
@@ -246,27 +250,16 @@ export default class PGPackageManager implements IPGPackageManager {
   }
 
   private async _deleteFile(name: string): Promise<void> {
-    await this.table;
+    await this.ready;
     await this.sql`
       DELETE FROM ${this.sql(TABLE_NAME)} WHERE path = ${name}
     `;
   }
 
   private async _deletePrefix(prefix: string): Promise<void> {
-    await this.table;
+    await this.ready;
     await this.sql`
       DELETE FROM ${this.sql(TABLE_NAME)} WHERE path = ${prefix + '%'}
     `;
-  }
-
-  private async _createTable(name): Promise<string> {
-    await this.sql`
-        CREATE TABLE IF NOT EXISTS ${this.sql(name)} (
-        path TEXT PRIMARY KEY,
-        content bytea,
-        created_at timestamp not null default current_timestamp,
-        updated_at timestamp not null default current_timestamp
-      )`;
-    return name;
   }
 }
