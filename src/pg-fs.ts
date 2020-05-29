@@ -1,5 +1,7 @@
+/* eslint-disable no-invalid-this */
 import path from 'path';
 import { Readable } from 'stream';
+import { callbackify } from 'util';
 
 import { ILocalPackageManager, Logger, Callback, Package, IUploadTarball } from '@verdaccio/types';
 import { getCode, VerdaccioError } from '@verdaccio/commons-api/lib';
@@ -60,42 +62,30 @@ export default class PGPackageManager implements IPGPackageManager {
     return;
   }
 
-  public async deletePackage(packageName: string, callback: (err: Error | null) => void): Promise<void> {
+  public deletePackage = callbackify(async (packageName: string) => {
     this.logger.debug({ packageName }, '[local-storage/deletePackage] delete a package @{packageName}');
-    try {
-      await this._deleteFile(this._getStorage(packageName));
-      callback(null);
-    } catch (err) {
-      callback(err);
-    }
-  }
+    await this._deleteFile(this._getStorage(packageName));
+  });
 
-  public async removePackage(callback: (err: NodeJS.ErrnoException | null) => void): Promise<void> {
+  public removePackage = callbackify(async () => {
     this.logger.debug({ packageName: this.prefix }, '[pg-storage/removePackage] remove a package: @{packageName}');
 
-    try {
-      await this._deletePrefix(this._getStorage('.'));
-      callback(null);
-    } catch (err) {
-      callback(err);
-    }
-  }
+    await this._deletePrefix(this._getStorage('.'));
+  });
 
-  public createPackage(name: string, value: Package, callback: Callback): void {
+  public createPackage = callbackify(async (name: string, value: Package) => {
     this.logger.debug({ packageName: name }, '[pg-storage/createPackage] create a package: @{packageName}');
+    this._createFile(this._getStorage(PKG_FILE_NAME), this._convertToString(value));
+  });
 
-    this._createFile(this._getStorage(PKG_FILE_NAME), this._convertToString(value), callback);
-  }
-
-  public savePackage(name: string, value: Package, callback: Callback): void {
+  public savePackage = callbackify(async (name: string, value: Package) => {
     this.logger.debug({ packageName: name }, '[pg-storage/savePackage] save a package: @{packageName}');
 
-    this._writeFile(this._getStorage(PKG_FILE_NAME), Buffer.from(this._convertToString(value)), callback);
-  }
+    await this._writeFile(this._getStorage(PKG_FILE_NAME), Buffer.from(this._convertToString(value)));
+  });
 
-  public async readPackage(name: string, callback: Callback): Promise<void> {
+  public readPackage = callbackify(async (name: string) => {
     this.logger.debug({ packageName: name }, '[pg-storage/readPackage] read a package: @{packageName}');
-
     try {
       const file = await this._readStorageFile(this._getStorage(PKG_FILE_NAME));
       const data = JSON.parse(file.toString('utf8'));
@@ -104,12 +94,12 @@ export default class PGPackageManager implements IPGPackageManager {
         { packageName: name },
         '[pg-storage/readPackage/_readStorageFile] read a package succeed: @{packageName}'
       );
-      callback(null, data);
+      return data;
     } catch (err) {
       this.logger.trace({ err }, '[local-storage/readPackage/_readStorageFile] error on read a package: @{err}');
-      callback(err);
+      throw err;
     }
-  }
+  });
 
   public writeTarball(name: string): IUploadTarball {
     const uploadStream = new UploadTarball({});
@@ -137,11 +127,11 @@ export default class PGPackageManager implements IPGPackageManager {
       uploadStream.done = (): void => {
         const query = async (): Promise<void> => {
           const buffer = Buffer.concat(chunks);
-          const err = await this._writeFile(pathName, buffer);
-          if (err) {
-            uploadStream.emit('error', err);
-          } else {
+          try {
+            await this._writeFile(pathName, buffer);
             uploadStream.emit('success');
+          } catch (err) {
+            uploadStream.emit('error', err);
           }
         };
         if (ended) {
@@ -179,20 +169,19 @@ export default class PGPackageManager implements IPGPackageManager {
     return readTarballStream;
   }
 
-  private async _createFile(name: string, contents: string, callback: Function): Promise<void> {
+  private async _createFile(name: string, contents: string): Promise<void> {
     await this.ready;
     this.logger.trace({ name }, '[pg-storage/_createFile] create a new file: @{name}');
     try {
       await this._readStorageFile(name);
       this.logger.trace({ name }, '[pg-storage/_createFile] file cannot be created, it already exists: @{name}');
-
-      return callback(getCode(409, 'EEXIST'));
     } catch (err) {
       if (err == ERROR_NO_SUCH_FILE) {
-        this._writeFile(name, Buffer.from(contents), callback);
+        await this._writeFile(name, Buffer.from(contents));
         this.logger.trace({ name }, '[pg-storage/_createFile] write file succeed: @{name}');
       }
     }
+    throw getCode(409, 'EEXIST');
   }
 
   private async _readStorageFile(name: string): Promise<Buffer> {
@@ -232,21 +221,14 @@ export default class PGPackageManager implements IPGPackageManager {
     return storagePath;
   }
 
-  private async _writeFile(dest: string, data: Buffer, cb: Callback = noop): Promise<Error | null> {
+  private async _writeFile(dest: string, data: Buffer): Promise<void> {
     await this.ready;
-    try {
-      await this.sql.begin(async sql => {
-        await sql`
-          INSERT INTO ${sql(TABLE_NAME)} (path, content, updated_at) VALUES (${dest}, ${data}, NOW())
-          ON CONFLICT (path) DO UPDATE SET content = ${Buffer.from(data)}
-        `;
-      });
-      cb(null);
-      return null;
-    } catch (err) {
-      cb(err);
-      return err;
-    }
+    await this.sql.begin(async sql => {
+      await sql`
+        INSERT INTO ${sql(TABLE_NAME)} (path, content, updated_at) VALUES (${dest}, ${data}, NOW())
+        ON CONFLICT (path) DO UPDATE SET content = ${Buffer.from(data)}
+      `;
+    });
   }
 
   private async _deleteFile(name: string): Promise<void> {
