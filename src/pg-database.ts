@@ -104,7 +104,7 @@ class PGDatabase implements IPluginStorage<PGConfig> {
 
   public add = callbackify(async (name: string) => {
     const data = await this.data;
-    if (data.list.includes(name)) {
+    if (!data.list.includes(name)) {
       this.data = Promise.resolve({ ...data, list: data.list.concat(name) });
       this.logger.debug({ name }, '[pg-storage]: the private package @{name} has been added');
     }
