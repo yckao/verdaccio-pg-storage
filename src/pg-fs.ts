@@ -8,7 +8,6 @@ import { getCode, VerdaccioError } from '@verdaccio/commons-api/lib';
 import postgres from 'postgres';
 import { UploadTarball, ReadTarball } from '@verdaccio/streams';
 import pglo from '@yckao/postgres-large-object';
-import { query } from 'express';
 
 export const TABLE_NAME = 'files';
 export const PKG_FILE_NAME = 'package.json';
@@ -127,10 +126,13 @@ export default class PGPackageManager implements IPGPackageManager {
       this._writeFile(pathName, uploadStream);
 
       uploadStream.done = (): void => {
-        if (ended) {
+        const onEnd = (): void => {
           uploadStream.emit('success');
+        };
+        if (ended) {
+          onEnd();
         } else {
-          uploadStream.on('end', query);
+          uploadStream.on('end', onEnd);
         }
       };
 
