@@ -1,6 +1,6 @@
 /* eslint-disable no-invalid-this */
 import path from 'path';
-import { Readable, Stream } from 'stream';
+import { Readable } from 'stream';
 import { callbackify } from 'util';
 
 import { ILocalPackageManager, Logger, Callback, Package, IUploadTarball } from '@verdaccio/types';
