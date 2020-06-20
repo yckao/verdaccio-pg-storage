@@ -1,12 +1,14 @@
 /* eslint-disable no-invalid-this */
 import path from 'path';
-import { Readable } from 'stream';
+import { Readable, Stream } from 'stream';
 import { callbackify } from 'util';
 
 import { ILocalPackageManager, Logger, Callback, Package, IUploadTarball } from '@verdaccio/types';
 import { getCode, VerdaccioError } from '@verdaccio/commons-api/lib';
 import postgres from 'postgres';
 import { UploadTarball, ReadTarball } from '@verdaccio/streams';
+import pglo from '@yckao/postgres-large-object';
+import { query } from 'express';
 
 export const TABLE_NAME = 'files';
 export const PKG_FILE_NAME = 'package.json';
@@ -44,7 +46,7 @@ export default class PGPackageManager implements IPGPackageManager {
     try {
       const buffer = await this._readStorageFile(this._getStorage(PKG_FILE_NAME));
       const json = JSON.parse(buffer.toString('utf8'));
-      updateHandler(json, err => {
+      updateHandler(json, (err?: Error) => {
         if (err) {
           this.logger.error({ err }, '[pg-storage/updatePackage/updateHandler]: onEnd @{err}');
           onEnd(err);
@@ -81,7 +83,7 @@ export default class PGPackageManager implements IPGPackageManager {
   public savePackage = callbackify(async (name: string, value: Package) => {
     this.logger.debug({ packageName: name }, '[pg-storage/savePackage] save a package: @{packageName}');
 
-    await this._writeFile(this._getStorage(PKG_FILE_NAME), Buffer.from(this._convertToString(value)));
+    await this._writeFile(this._getStorage(PKG_FILE_NAME), Readable.from(this._convertToString(value)));
   });
 
   public readPackage = callbackify(async (name: string) => {
@@ -121,21 +123,12 @@ export default class PGPackageManager implements IPGPackageManager {
           uploadStream.emit('error', err);
         }
       }
-      const chunks: Uint8Array[] = [];
-      uploadStream.on('data', data => chunks.push(data));
+
+      this._writeFile(pathName, uploadStream);
 
       uploadStream.done = (): void => {
-        const query = async (): Promise<void> => {
-          const buffer = Buffer.concat(chunks);
-          try {
-            await this._writeFile(pathName, buffer);
-            uploadStream.emit('success');
-          } catch (err) {
-            uploadStream.emit('error', err);
-          }
-        };
         if (ended) {
-          query();
+          uploadStream.emit('success');
         } else {
           uploadStream.on('end', query);
         }
@@ -177,7 +170,7 @@ export default class PGPackageManager implements IPGPackageManager {
       this.logger.trace({ name }, '[pg-storage/_createFile] file cannot be created, it already exists: @{name}');
     } catch (err) {
       if (err == ERROR_NO_SUCH_FILE) {
-        await this._writeFile(name, Buffer.from(contents));
+        await this._writeFile(name, Readable.from(contents));
         this.logger.trace({ name }, '[pg-storage/_createFile] write file succeed: @{name}');
       }
     }
@@ -221,27 +214,45 @@ export default class PGPackageManager implements IPGPackageManager {
     return storagePath;
   }
 
-  private async _writeFile(dest: string, data: Buffer): Promise<void> {
+  private async _writeFile(dest: string, stream: Readable): Promise<void> {
     await this.ready;
     await this.sql.begin(async sql => {
+      const manager = new pglo.LargeObjectManager(sql);
+      const [oid, _stream] = await manager.createAndWritableStreamAsync();
+      stream.pipe(_stream);
+
+      await new Promise((resolve, reject) => {
+        stream.on('end', resolve);
+        stream.on('error', reject);
+      });
+
       await sql`
-        INSERT INTO ${sql(TABLE_NAME)} (path, content, updated_at) VALUES (${dest}, ${data}, NOW())
-        ON CONFLICT (path) DO UPDATE SET content = ${Buffer.from(data)}
+        INSERT INTO ${sql(TABLE_NAME)} (path, content, updated_at) VALUES (${dest}, ${oid}, NOW())
+        ON CONFLICT (path) DO UPDATE SET content = ${oid}, updated_at = NOW()
       `;
     });
   }
 
   private async _deleteFile(name: string): Promise<void> {
     await this.ready;
-    await this.sql`
-      DELETE FROM ${this.sql(TABLE_NAME)} WHERE path = ${name}
-    `;
+
+    await this.sql.begin(async sql => {
+      const manager = new pglo.LargeObjectManager(sql);
+      const [{ content }] = await sql<[{ content: number }]>`DELETE FROM ${this.sql(
+        TABLE_NAME
+      )} WHERE path = ${name} RETURNING *`;
+      await manager.unlinkAsync(content);
+    });
   }
 
   private async _deletePrefix(prefix: string): Promise<void> {
     await this.ready;
-    await this.sql`
-      DELETE FROM ${this.sql(TABLE_NAME)} WHERE path = ${prefix + '%'}
+    const rows = await this.sql<{ content: number }>`
+      DELETE FROM ${this.sql(TABLE_NAME)} WHERE path = ${prefix + '%'} RETURNING *
     `;
+    await this.sql.begin(async sql => {
+      const manager = new pglo.LargeObjectManager(sql);
+      await Promise.all(rows.map(row => manager.unlinkAsync(row.content)));
+    });
   }
 }
