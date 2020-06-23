@@ -36,15 +36,17 @@ export class PackageService {
   }
 
   public create = async (name: string, json: VerdaccioPackage): Promise<void> => {
-    this.logger.debug({ name }, '[pg-storage/package] create a package: @{name}');
+    this.logger.debug({ name }, '[pg-storage/package] create package @{name}');
 
     await this.save(name, json);
+
+    this.logger.debug({ name }, '[pg-storage/package] package @{name} created');
   };
 
   public save = async (name: string, json: VerdaccioPackage): Promise<void> => {
-    this.logger.debug({ name }, '[pg-storage/package] save a package: @{name}');
-
+    this.logger.debug({ name }, '[pg-storage/package] save package @{name}');
     const sql = await this.database.sql();
+
     await sql`
       INSERT INTO packages 
         (storage, name, json)
@@ -56,6 +58,8 @@ export class PackageService {
         json = ${sql.json(json)},
         updated = NOW()
     `;
+
+    this.logger.debug({ name }, '[pg-storage/package] package @{name} saved');
   };
 
   public update = async (
@@ -64,7 +68,7 @@ export class PackageService {
     onWrite: Callback,
     transformPackage: Function
   ): Promise<void> => {
-    this.logger.debug({ name }, '[pg-storage/package] update a package: @{name}');
+    this.logger.debug({ name }, '[pg-storage/package] update package @{name}');
 
     const updateHandlerAsync = promisify(updateHandler);
     const onWriteAsync = promisify(onWrite);
@@ -75,10 +79,11 @@ export class PackageService {
     const transformed = transformPackage(pkg);
 
     await onWriteAsync(name, transformed);
+    this.logger.debug({ name }, '[pg-storage/package] package @{name} updated');
   };
 
   public read = async (name: string): Promise<VerdaccioPackage> => {
-    this.logger.debug({ name }, '[pg-storage/package] read a package: @{name}');
+    this.logger.debug({ name }, '[pg-storage/package] read package @{name}');
     const sql = await this.database.sql();
 
     const [pkg] = await sql<{ json: VerdaccioPackage }>`
@@ -87,13 +92,16 @@ export class PackageService {
     if (!pkg) {
       throw VerdaccioError.getNotFound();
     }
+
+    this.logger.debug({ name }, '[pg-storage/package] package @{name} read');
     return pkg.json;
   };
 
   public delete = async (): Promise<void> => {
-    this.logger.debug({ name: this.name }, '[pg-storage/package] delete a package @{name}');
+    this.logger.debug({ name: this.name }, '[pg-storage/package] delete package @{name}');
     const sql = await this.database.sql();
 
     await sql`DELETE FROM packages WHERE storage = ${this.storage} AND name = ${this.name}`;
+    this.logger.debug({ name: this.name }, '[pg-storage/package] deleted package @{name}');
   };
 }

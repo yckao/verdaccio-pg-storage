@@ -40,7 +40,7 @@ export class PGDatabase implements IPluginStorage<PGConfig> {
     this.logger.debug({ config: JSON.stringify(this.config, null, 4) }, 'pg: configuration: @{config}');
 
     this.database = new Database(this.config.url);
-    this.token = new TokenService(this.database);
+    this.token = new TokenService(this.database, this.logger);
     this.localPackage = new LocalPackagesService(this.database, this.logger);
     this.verdaccioSecret = new VerdaccioSecretService(this.database, this.logger);
   }

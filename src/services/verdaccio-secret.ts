@@ -13,6 +13,7 @@ export class VerdaccioSecretService {
   }
 
   public set = async (secret: string): Promise<void> => {
+    this.logger.debug('[pg-storage/verdaccio-secret]: save secret');
     const sql = await this.database.sql();
 
     await sql`
@@ -22,13 +23,17 @@ export class VerdaccioSecretService {
         ('verdaccio', ${secret}, NOW(), NOW())
         ON CONFLICT (name) DO UPDATE SET updated = NOW(), value = ${secret}
     `;
+
+    this.logger.debug('[pg-storage/verdaccio-secret]: secret saved');
   };
 
   public get = async (): Promise<string> => {
+    this.logger.debug('[pg-storage/verdaccio-secret]: get secret');
     const sql = await this.database.sql();
 
     const [secret] = await sql<{ value: string }>`SELECT value FROM secrets WHERE name = 'verdaccio'`;
 
+    this.logger.debug('[pg-storage/verdaccio-secret]: secret saved');
     return secret ? secret.value : '';
   };
 }

@@ -1,5 +1,6 @@
 /* eslint-disable no-invalid-this */
 import postgres from 'postgres';
+import * as VerdaccioError from '@verdaccio/commons-api';
 
 import * as migrations from './migrations';
 
@@ -13,7 +14,13 @@ export class Database {
   }
 
   public sql = async (): Promise<postgres.Sql<never>> => {
-    await this.ready;
+    try {
+      await this.ready;
+    } catch (err) {
+      throw VerdaccioError.getServiceUnavailable(
+        `[pg-storage/database]: can't get database ready with error ${(err as Error).message}`
+      );
+    }
     return this._sql;
   };
 

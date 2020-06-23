@@ -1,6 +1,5 @@
 /* eslint-disable no-invalid-this */
 import { Logger } from '@verdaccio/types';
-// import { getCode, getInternalError, getNotFound, VerdaccioError } from '@verdaccio/commons-api/lib';
 
 import { Database } from '../database';
 
@@ -14,19 +13,21 @@ export class LocalPackagesService {
   }
 
   public add = async (name: string): Promise<void> => {
+    this.logger.debug({ name }, '[pg-storage/local-package]: add private package @{name}');
     const sql = await this.database.sql();
 
     await sql`
-      INSERT INTO local_packages
-        (name, created, updated)
-      VALUES
-        (${name}, NOW(), NOW())
-        ON CONFLICT (name) DO UPDATE SET updated = NOW()
-    `;
+    INSERT INTO local_packages
+      (name, created, updated)
+    VALUES
+      (${name}, NOW(), NOW())
+      ON CONFLICT (name) DO UPDATE SET updated = NOW()
+  `;
     this.logger.debug({ name }, '[pg-storage/local-package]: the private package @{name} has been added');
   };
 
   public remove = async (name: string): Promise<void> => {
+    this.logger.debug({ name }, '[pg-storage/local-package]: remove private package @{name}');
     const sql = await this.database.sql();
 
     await sql`
@@ -36,6 +37,7 @@ export class LocalPackagesService {
   };
 
   public get = async (): Promise<string[]> => {
+    this.logger.debug('[pg-storage/local-package]: get full list of private package');
     const sql = await this.database.sql();
 
     const rows = await sql<{ name: string }>`

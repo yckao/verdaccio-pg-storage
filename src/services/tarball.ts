@@ -21,6 +21,7 @@ export class TarballService {
   public write = async (name: string, upload: UploadTarball): Promise<void> => {
     this.logger.debug({ name }, '[pg-storage/tarball] write a tarball for package: @{name}');
     const sql = await this.database.sql();
+
     await sql.begin(async trx => {
       const manager = new LargeObjectManager(trx);
       const [exists] = await trx<{
@@ -53,11 +54,14 @@ export class TarballService {
         await manager.unlinkAsync(exists.file);
       }
     });
+
+    this.logger.debug({ name }, '[pg-storage/tarball] a tarball for package: @{name} written');
   };
 
   public read = async (name: string, read: ReadTarball): Promise<void> => {
     this.logger.debug({ name }, '[pg-storage/package] read a tarball for package: @{name}');
     const sql = await this.database.sql();
+
     await sql.begin(async trx => {
       const manager = new LargeObjectManager(trx);
       const [{ file }] = await trx<{ file: number }>`
@@ -76,11 +80,14 @@ export class TarballService {
         stream.on('error', reject);
       });
     });
+
+    this.logger.debug({ name }, '[pg-storage/package] a tarball for package: @{name} read');
   };
 
   public delete = async (name: string): Promise<void> => {
     this.logger.debug({ name }, '[pg-storage/package] delete a tarball for name: @{name}');
     const sql = await this.database.sql();
+
     await sql.begin(async trx => {
       const manager = new LargeObjectManager(trx);
       const rows = await trx<{ file: number }>`
@@ -91,11 +98,14 @@ export class TarballService {
         await manager.unlinkAsync(row.file);
       }
     });
+
+    this.logger.debug({ name }, '[pg-storage/package] a tarball for name: @{name} deleted');
   };
 
   public remove = async (): Promise<void> => {
-    this.logger.debug({ storage: this.storage }, '[pg-storage/package] remove a tarball for storage: @{storage}');
+    this.logger.debug({ package: this.package }, '[pg-storage/package] remove all tarball for package: @{package}');
     const sql = await this.database.sql();
+
     await sql.begin(async trx => {
       const manager = new LargeObjectManager(trx);
       const rows = await trx<{ file: number }>`
@@ -105,5 +115,7 @@ export class TarballService {
         await manager.unlinkAsync(row.file);
       }
     });
+
+    this.logger.debug({ package: this.package }, '[pg-storage/package] all tarball for package: @{package} removed');
   };
 }
