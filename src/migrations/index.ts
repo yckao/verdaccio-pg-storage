@@ -51,8 +51,10 @@ export const up = async (sql: postgres.Sql<never>): Promise<string[]> => {
 
     const toExecute = migrations.slice(executed.length);
 
-    await Promise.all(toExecute.map(migration => migration.up(sql)));
-    await Promise.all(toExecute.map(migration => sql`INSERT INTO migrations (name) VALUES (${migration.name})`));
+    for (const migration of toExecute) {
+      await migration.up(sql);
+      await sql`INSERT INTO migrations (name) VALUES (${migration.name})`;
+    }
 
     return toExecute.map(migration => migration.name);
   });

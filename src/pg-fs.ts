@@ -1,260 +1,86 @@
 /* eslint-disable no-invalid-this */
-import path from 'path';
-import { Readable } from 'stream';
 import { callbackify } from 'util';
 
-import { ILocalPackageManager, Logger, Callback, Package, IUploadTarball } from '@verdaccio/types';
-import { getCode, VerdaccioError } from '@verdaccio/commons-api/lib';
-import postgres from 'postgres';
+import { ILocalPackageManager, Logger, Callback, Package } from '@verdaccio/types';
 import { UploadTarball, ReadTarball } from '@verdaccio/streams';
-import pglo from '@yckao/postgres-large-object';
 
-export const TABLE_NAME = 'files';
-export const PKG_FILE_NAME = 'package.json';
-export const ERROR_NO_SUCH_FILE: VerdaccioError = new Error('no such file');
-ERROR_NO_SUCH_FILE.code = 'ENOENT';
-export const ERROR_FILE_EXIST: VerdaccioError = new Error('file exist');
-ERROR_FILE_EXIST.code = 'EEXISTS';
-export type IPGPackageManager = ILocalPackageManager & { prefix: string };
+import { Database } from './database';
+import { PackageService } from './services/package';
+import { TarballService } from './services/tarball';
+
 const noop = (): void => {
   // Make linter happy
 };
 
-export default class PGPackageManager implements IPGPackageManager {
-  public prefix: string;
+export class PGPackageManager implements ILocalPackageManager {
   public logger: Logger;
 
-  private sql: postgres.Sql<never>;
-  private ready: Promise<void>;
+  private package: PackageService;
+  private tarball: TarballService;
 
-  public constructor(opts: { sql: postgres.Sql<never>; ready: Promise<void>; prefix: string; logger: Logger }) {
-    this.sql = opts.sql;
-    this.ready = opts.ready;
-    this.prefix = opts.prefix;
-    this.logger = opts.logger;
+  public constructor(database: Database, logger: Logger, storage: string, name: string) {
+    this.logger = logger;
+    this.package = new PackageService(database, logger, storage, name);
+    this.tarball = new TarballService(database, logger, storage, name);
   }
 
-  public async updatePackage(
-    name: string,
-    updateHandler: Callback,
-    onWrite: Callback,
-    transformPackage: Function,
-    onEnd: Callback
-  ): Promise<void> {
-    this.logger.debug({ name }, '[pg-storage/updatePackage]: update package init ${name}');
-    try {
-      const buffer = await this._readStorageFile(this._getStorage(PKG_FILE_NAME));
-      const json = JSON.parse(buffer.toString('utf8'));
-      updateHandler(json, (err?: Error) => {
-        if (err) {
-          this.logger.error({ err }, '[pg-storage/updatePackage/updateHandler]: onEnd @{err}');
-          onEnd(err);
-        } else {
-          const transformed = transformPackage(json);
-          this.logger.debug({ transformed }, '[pg-storage/updatePackage/updateHandler]: onWrite @{transformed}');
-          onWrite(name, transformed, onEnd);
-        }
-      });
-    } catch (err) {
-      this.logger.error({ err }, '[pg-storage/updatePackage/updateHandler]: onEnd catch @{err}');
+  public updatePackage = callbackify(
+    (name: string, updateHandler: Callback, onWrite: Callback, transformPackage: Function): Promise<void> =>
+      this.package.update(name, updateHandler, onWrite, transformPackage)
+  );
 
-      return onEnd(err);
+  public deletePackage = callbackify(
+    async (name: string): Promise<void> => {
+      if (name === 'package.json') {
+        await this.package.delete();
+      } else {
+        await this.tarball.delete(name);
+      }
     }
-    return;
-  }
+  );
 
-  public deletePackage = callbackify(async (packageName: string) => {
-    this.logger.debug({ packageName }, '[local-storage/deletePackage] delete a package @{packageName}');
-    await this._deleteFile(this._getStorage(packageName));
-  });
-
-  public removePackage = callbackify(async () => {
-    this.logger.debug({ packageName: this.prefix }, '[pg-storage/removePackage] remove a package: @{packageName}');
-
-    await this._deletePrefix(this._getStorage('.'));
-  });
-
-  public createPackage = callbackify(async (name: string, value: Package) => {
-    this.logger.debug({ packageName: name }, '[pg-storage/createPackage] create a package: @{packageName}');
-    this._createFile(this._getStorage(PKG_FILE_NAME), this._convertToString(value));
-  });
-
-  public savePackage = callbackify(async (name: string, value: Package) => {
-    this.logger.debug({ packageName: name }, '[pg-storage/savePackage] save a package: @{packageName}');
-
-    await this._writeFile(this._getStorage(PKG_FILE_NAME), Readable.from(this._convertToString(value)));
-  });
-
-  public readPackage = callbackify(async (name: string) => {
-    this.logger.debug({ packageName: name }, '[pg-storage/readPackage] read a package: @{packageName}');
-    try {
-      const file = await this._readStorageFile(this._getStorage(PKG_FILE_NAME));
-      const data = JSON.parse(file.toString('utf8'));
-
-      this.logger.trace(
-        { packageName: name },
-        '[pg-storage/readPackage/_readStorageFile] read a package succeed: @{packageName}'
-      );
-      return data;
-    } catch (err) {
-      this.logger.trace({ err }, '[local-storage/readPackage/_readStorageFile] error on read a package: @{err}');
-      throw err;
+  public removePackage = callbackify(
+    async (): Promise<void> => {
+      await this.package.delete();
+      await this.tarball.remove();
     }
-  });
+  );
 
-  public writeTarball(name: string): IUploadTarball {
-    const uploadStream = new UploadTarball({});
-    this.logger.debug({ packageName: name }, '[pg-storage/writeTarball] write a tarball for package: @{packageName}');
+  public createPackage = callbackify((name: string, value: Package): Promise<void> => this.package.create(name, value));
 
+  public savePackage = callbackify((name: string, value: Package): Promise<void> => this.package.save(name, value));
+
+  public readPackage = callbackify((name: string) => this.package.read(name));
+
+  public writeTarball = (name: string): UploadTarball => {
+    const upload = new UploadTarball({});
     let ended = false;
-    uploadStream.on('end', function() {
+    upload.on('end', () => {
       ended = true;
     });
 
-    const pathName: string = this._getStorage(name);
+    this.tarball.write(name, upload);
 
-    (async (): Promise<void> => {
-      try {
-        await this._readStorageFile(pathName);
-        uploadStream.emit('error', getCode(409, ERROR_FILE_EXIST.message));
-      } catch (err) {
-        if (err != ERROR_NO_SUCH_FILE) {
-          uploadStream.emit('error', err);
-        }
-      }
-
-      this._writeFile(pathName, uploadStream);
-
-      uploadStream.done = (): void => {
-        const onEnd = (): void => {
-          uploadStream.emit('success');
-        };
-        if (ended) {
-          onEnd();
-        } else {
-          uploadStream.on('end', onEnd);
-        }
+    upload.done = (): void => {
+      const onEnd = (): void => {
+        upload.emit('success');
       };
-
-      uploadStream.abort = noop;
-      uploadStream.emit('open');
-    })();
-
-    return uploadStream;
-  }
-
-  public readTarball(name: string): ReadTarball {
-    const pathName: string = this._getStorage(name);
-    this.logger.debug({ packageName: name }, '[pg-storage/readTarball] read a tarball for package: @{packageName}');
-
-    const readTarballStream = new ReadTarball({});
-    const query = async (): Promise<void> => {
-      try {
-        const file = await this._readStorageFile(pathName);
-        readTarballStream.emit('content-length', file.byteLength);
-        readTarballStream.emit('open');
-        Readable.from(file).pipe(readTarballStream);
-      } catch (err) {
-        readTarballStream.emit('error', err);
+      if (ended) {
+        onEnd();
+      } else {
+        upload.on('end', onEnd);
       }
     };
 
-    query();
+    upload.abort = noop;
+    return upload;
+  };
 
-    return readTarballStream;
-  }
+  public readTarball = (name: string): ReadTarball => {
+    const read = new ReadTarball({});
 
-  private async _createFile(name: string, contents: string): Promise<void> {
-    await this.ready;
-    this.logger.trace({ name }, '[pg-storage/_createFile] create a new file: @{name}');
-    try {
-      await this._readStorageFile(name);
-      this.logger.trace({ name }, '[pg-storage/_createFile] file cannot be created, it already exists: @{name}');
-    } catch (err) {
-      if (err == ERROR_NO_SUCH_FILE) {
-        await this._writeFile(name, Readable.from(contents));
-        this.logger.trace({ name }, '[pg-storage/_createFile] write file succeed: @{name}');
-      }
-    }
-    throw getCode(409, 'EEXIST');
-  }
+    this.tarball.read(name, read);
 
-  private async _readStorageFile(name: string): Promise<Buffer> {
-    await this.ready;
-    this.logger.trace({ name }, '[pg-storage/_readStorageFile] read a file: @{name}');
-
-    try {
-      const rows = await this.sql<{ content: Buffer }>`SELECT content FROM ${this.sql(
-        TABLE_NAME
-      )} WHERE path = ${name}`;
-      if (rows.count === 0) {
-        throw ERROR_NO_SUCH_FILE;
-      }
-
-      const [{ content: data }] = rows;
-      this.logger.trace({ name }, '[pg-storage/_readStorageFile] read file succeed: @{name}');
-
-      return data;
-    } catch (err) {
-      if (err != ERROR_NO_SUCH_FILE) {
-        this.logger.trace({ name }, '[pg-storage/_readStorageFile] error on read the file: @{name}');
-      } else {
-        this.logger.trace({ name }, '[pg-storage/_readStorageFile] error no such file: @{name}');
-      }
-
-      throw err;
-    }
-  }
-
-  private _convertToString(value: Package): string {
-    return JSON.stringify(value, null, '\t');
-  }
-
-  private _getStorage(fileName = ''): string {
-    const storagePath: string = path.join(this.prefix, fileName);
-
-    return storagePath;
-  }
-
-  private async _writeFile(dest: string, stream: Readable): Promise<void> {
-    await this.ready;
-    await this.sql.begin(async sql => {
-      const manager = new pglo.LargeObjectManager(sql);
-      const [oid, _stream] = await manager.createAndWritableStreamAsync();
-      stream.pipe(_stream);
-
-      await new Promise((resolve, reject) => {
-        stream.on('end', resolve);
-        stream.on('error', reject);
-      });
-
-      await sql`
-        INSERT INTO ${sql(TABLE_NAME)} (path, content, updated_at) VALUES (${dest}, ${oid}, NOW())
-        ON CONFLICT (path) DO UPDATE SET content = ${oid}, updated_at = NOW()
-      `;
-    });
-  }
-
-  private async _deleteFile(name: string): Promise<void> {
-    await this.ready;
-
-    await this.sql.begin(async sql => {
-      const manager = new pglo.LargeObjectManager(sql);
-      const [{ content }] = await sql<[{ content: number }]>`DELETE FROM ${this.sql(
-        TABLE_NAME
-      )} WHERE path = ${name} RETURNING *`;
-      await manager.unlinkAsync(content);
-    });
-  }
-
-  private async _deletePrefix(prefix: string): Promise<void> {
-    await this.ready;
-    const rows = await this.sql<{ content: number }>`
-      DELETE FROM ${this.sql(TABLE_NAME)} WHERE path = ${prefix + '%'} RETURNING *
-    `;
-    await this.sql.begin(async sql => {
-      const manager = new pglo.LargeObjectManager(sql);
-      await Promise.all(rows.map(row => manager.unlinkAsync(row.content)));
-    });
-  }
+    return read;
+  };
 }

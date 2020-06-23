@@ -9,5 +9,13 @@
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true
   },
-  "include": ["src/*.ts", "types/*.ts"]
+  "include": [
+    "src/*.ts",
+    "types/*.ts",
+    "src/pg-fs.ts.bak",
+    "src/services/package.ts",
+    "src/services/token.ts",
+    "src/pg-database.ts.bak",
+    "src/migrations/migration.ts"
+  ]
 }
