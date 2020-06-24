@@ -3,6 +3,10 @@ import postgres from 'postgres';
 
 export const up = async (sql: postgres.Sql<never>): Promise<void> => {
   await sql`
+    DROP TABLE IF EXISTS "tokens";
+  `;
+
+  await sql`
     CREATE TABLE "tokens" (
       "id"         SERIAL,
       "user"       TEXT      NOT NULL,
