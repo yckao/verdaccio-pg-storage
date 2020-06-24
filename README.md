@@ -4,7 +4,7 @@
 
 [![verdaccio (latest)](https://img.shields.io/npm/v/verdaccio-pg-storage/latest.svg)](https://www.npmjs.com/package/verdaccio-pg-storage)
 ![MIT](https://img.shields.io/github/license/mashape/apistatus.svg)
-[![node](https://img.shields.io/node/v/verdaccio-aws-s3-storage/latest.svg)](https://www.npmjs.com/package/verdaccio-aws-s3-storage)
+[![node](https://img.shields.io/node/v/verdaccio-pg-storage/latest.svg)](https://www.npmjs.com/package/verdaccio-pg-storage)
 
 ---
 
