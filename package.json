@@ -1,6 +1,6 @@
 {
   "name": "verdaccio-pg-storage",
-  "version": "0.0.2",
+  "version": "1.0.0",
   "description": "Storage plugin to host packages PostgreSQL",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
