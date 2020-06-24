@@ -8,7 +8,7 @@
 
 - [ ] Add Tests
 - [ ] Add Docs
-- [ ] Optimize File Uploading
+- [x] Optimize File Uploading
 - [x] Make Migration
-- [ ] Reorganize Log Messages
+- [x] Reorganize Log Messages
 - [ ] Build With CI

@@ -1,4 +1,4 @@
-import PGDatabase from './pg-database';
+import { PGDatabase } from './pg-database';
 
 export { PGDatabase };
 
